@@ -786,33 +786,58 @@ def exibir_lista_tipos_residuos(local: str, expanded: bool = False) -> None:
                 st.write(f"- {tipo_nome}")
 
 
+@st.cache_data(show_spinner=False)
+def indexar_arquivos_imagem() -> dict[str, str]:
+    extensoes = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
+    raizes = [BASE_DIR, Path.cwd(), BASE_DIR.parent, Path.cwd().parent]
+    mapa: dict[str, str] = {}
+    raizes_unicas: list[Path] = []
+    vistos: set[str] = set()
+
+    for raiz in raizes:
+        chave = str(raiz.resolve()) if raiz.exists() else str(raiz)
+        if chave in vistos:
+            continue
+        vistos.add(chave)
+        raizes_unicas.append(raiz)
+
+    for raiz in raizes_unicas:
+        if not raiz.exists() or not raiz.is_dir():
+            continue
+        total_lidos = 0
+        try:
+            for arquivo in raiz.rglob("*"):
+                total_lidos += 1
+                if total_lidos > 30000:
+                    break
+                if arquivo.is_file() and arquivo.suffix.lower() in extensoes:
+                    chave = arquivo.name.lower()
+                    if chave not in mapa:
+                        mapa[chave] = str(arquivo)
+        except OSError:
+            continue
+    return mapa
+
+
 def resolver_caminho_imagem(nome_arquivo: str) -> Path | None:
     candidatos = [
         IMAGES_DIR / nome_arquivo,
         BASE_DIR / "assets" / "images" / nome_arquivo,
+        BASE_DIR / "Assets" / "images" / nome_arquivo,
         Path.cwd() / "assets" / "images" / nome_arquivo,
+        Path.cwd() / "Assets" / "images" / nome_arquivo,
     ]
     for caminho in candidatos:
         if caminho.exists() and caminho.is_file():
             return caminho
 
     nome_lower = nome_arquivo.lower()
-    pastas = [IMAGES_DIR, BASE_DIR / "assets" / "images", Path.cwd() / "assets" / "images"]
-    pastas_unicas: list[Path] = []
-    vistos: set[str] = set()
-    for pasta in pastas:
-        pasta_str = str(pasta.resolve()) if pasta.exists() else str(pasta)
-        if pasta_str in vistos:
-            continue
-        vistos.add(pasta_str)
-        pastas_unicas.append(pasta)
-
-    for pasta in pastas_unicas:
-        if not pasta.exists():
-            continue
-        for arquivo in pasta.iterdir():
-            if arquivo.is_file() and arquivo.name.lower() == nome_lower:
-                return arquivo
+    mapa = indexar_arquivos_imagem()
+    caminho_mapeado = mapa.get(nome_lower)
+    if caminho_mapeado:
+        caminho = Path(caminho_mapeado)
+        if caminho.exists() and caminho.is_file():
+            return caminho
     return None
 
 
@@ -837,6 +862,17 @@ def exibir_mosaico_imagens(secao: str, titulo: str = "Imagens de referência") -
 
     if not arquivos_disponiveis:
         st.info("Imagens não encontradas no deploy. Verifique se a pasta `assets/images` foi enviada ao GitHub.")
+        with st.expander("Diagnóstico de imagens", expanded=False):
+            st.code(
+                "\n".join(
+                    [
+                        f"BASE_DIR: {BASE_DIR}",
+                        f"CWD: {Path.cwd()}",
+                        f"IMAGES_DIR esperado: {IMAGES_DIR}",
+                        f"Arquivos de imagem detectados no repositório: {len(indexar_arquivos_imagem())}",
+                    ]
+                )
+            )
         return
 
     st.markdown(f"**{titulo}**")
